@@ -5,6 +5,7 @@ import (
 	"net"
 	"net/http"
 	"net/rpc"
+	"time"
 )
 
 type DynamoServer struct {
@@ -14,6 +15,7 @@ type DynamoServer struct {
 	preferenceList []DynamoNode //Ordered list of other Dynamo nodes to perform operations o
 	selfNode       DynamoNode   //This node's address and port info
 	nodeID         string       //ID of this node
+	crash          bool
 
 }
 
@@ -30,7 +32,13 @@ func (s *DynamoServer) Gossip(_ Empty, _ *Empty) error {
 
 //Makes server unavailable for some seconds
 func (s *DynamoServer) Crash(seconds int, success *bool) error {
-	panic("todo")
+	//panic("todo")
+	s.crash = true
+	go func() { 
+		time.Sleep(time.Duration(seconds) * time.Second) 
+		s.crash = false
+	}() 
+	return nil
 }
 
 // Put a file to this server and W other servers
@@ -56,7 +64,7 @@ func NewDynamoServer(w int, r int, hostAddr string, hostPort string, id string) 
 		preferenceList: preferenceList,
 		selfNode:       selfNodeInfo,
 		nodeID:         id,
-	}
+		crash: false}
 }
 
 func ServeDynamoServer(dynamoServer DynamoServer) error {
