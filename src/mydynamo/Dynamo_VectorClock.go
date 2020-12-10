@@ -15,7 +15,7 @@ func NewVectorClock() VectorClock {
 //Returns true if the other VectorClock is causally descended from this one
 func (s VectorClock) LessThan(otherClock VectorClock) bool {
 	for nodeID, version := range s.Count{
-		if version > otherClock.Count[nodeID]{
+		if version >= otherClock.Count[nodeID]{
 			return false
 		}
 	}
