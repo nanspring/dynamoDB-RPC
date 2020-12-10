@@ -9,6 +9,7 @@ import (
 	"os"
 	"strconv"
 	"sync"
+	"time"
 )
 
 func main() {
@@ -75,7 +76,7 @@ func main() {
 	//Create a duplicate of dynamoNodeList that we can rotate
 	//so that each node has a distinct preference list
 	nodePreferenceList := dynamoNodeList
-
+	time.Sleep(3 * time.Second)
 	//Send the preference list to all servers
 	for _, info := range dynamoNodeList {
 		var empty mydynamo.Empty
