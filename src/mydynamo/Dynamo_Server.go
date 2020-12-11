@@ -79,18 +79,24 @@ func (s *DynamoServer) Put(value PutArgs, result *bool) error {
 		*result = false
 		return errors.New("node crash")
 	}
+	log.Println("debug 1")
 	wValue := s.wValue 
 	key := value.Key
 	new_value := value.Value
 	new_context := value.Context
 	object := (*s).objectMap[key]
 	nodeID := s.nodeID
+	//log.Println("debug 1.1")
 	if object == nil { //meaning this is a new object
 		s.objectMap[key] = make([]ObjectEntry, 0)
+		//log.Println("debug 1.2")
 		s.objectMap[key] = append(s.objectMap[key],ObjectEntry{NewContext(NewVectorClock()),new_value})
-		object[0].Context.Clock.countMap[nodeID] = 0 
+		//log.Println("debug 1.3")
+		s.objectMap[key][0].Context.Clock.CountMap[nodeID] = 0 
+		//log.Println("debug 1.4")
 	}
-	object[0].Context.Clock.Increment(s.nodeID) //first position is its own vector clock
+	log.Println("debug 2")
+	s.objectMap[key][0].Context.Clock.Increment(s.nodeID) //first position is its own vector clock
 	*result = true
 	var vc VectorClock
 	sign_replace := false
@@ -113,6 +119,7 @@ func (s *DynamoServer) Put(value PutArgs, result *bool) error {
 			}
 		}
 	}
+	log.Println("debug 3")
 	object = object[:i]
 	if sign_concurrent{
 		s.objectMap[key] = append(s.objectMap[key],ObjectEntry{new_context,new_value})
@@ -143,6 +150,7 @@ func (s *DynamoServer) Put(value PutArgs, result *bool) error {
 			s.notReplicated[key] = append(s.notReplicated[key], node)
 		}
 	}
+	log.Println("debug 4")
 	if count < wValue{
 		*result = false
 	}
@@ -248,7 +256,7 @@ func (s *DynamoServer) PutToPreference(value PutArgs, result *bool) error{
 	if object == nil { //meaning this is a new object
 		s.objectMap[key] = make([]ObjectEntry, 0)
 		s.objectMap[key] = append(s.objectMap[key],ObjectEntry{NewContext(NewVectorClock()),new_value})
-		object[0].Context.Clock.countMap[nodeID] = 0 
+		object[0].Context.Clock.CountMap[nodeID] = 0 
 	}
 	object[0].Context.Clock.Increment(s.nodeID) //first position is its own vector clock
 	*result = true
