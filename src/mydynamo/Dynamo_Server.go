@@ -45,7 +45,7 @@ func (s *DynamoServer) SendPreferenceList(incomingList []DynamoNode, _ *Empty) e
 // Forces server to gossip
 // As this method takes no arguments, we must use the Empty placeholder
 func (s *DynamoServer) Gossip(_ Empty, _ *Empty) error {
-	for key, nodes := range s.notReplicated{
+	for key, nodes := range (*s).notReplicated{
 		object := (*s).objectMap[key]
 		for i := 0 ; i < len(nodes); i++ {
 			node := nodes[i]
@@ -53,12 +53,12 @@ func (s *DynamoServer) Gossip(_ Empty, _ *Empty) error {
 			for j := 0 ; j< len(object); j++ {
 				args := NewPutArgs(key, object[j].Context, object[j].Value)
 				err := s.RPCPut(serverAddr, &args)
-				if err != nil {
-					continue
+				if err != nil { // deal with crash case 
+					log.Println(err)
 				}
 			}
 		}
-		s.notReplicated[key] = make([]DynamoNode, 0)
+		
 	}
 	return nil
 }
@@ -79,23 +79,16 @@ func (s *DynamoServer) Put(value PutArgs, result *bool) error {
 		*result = false
 		return errors.New("node crash")
 	}
-	// log.Println("debug 1")
 	wValue := s.wValue 
 	key := value.Key
 	new_value := value.Value
 	new_context := value.Context
 	object := (*s).objectMap[key]
 	nodeID := s.nodeID
-	//log.Println("debug 1.1")
 	if object == nil { //meaning this is a new object
-		s.objectMap[key] = make([]ObjectEntry, 0)
-		//log.Println("debug 1.2")
 		s.objectMap[key] = append(s.objectMap[key],ObjectEntry{NewContext(NewVectorClock()),new_value})
-		//log.Println("debug 1.3")
 		s.objectMap[key][0].Context.Clock.CountMap[nodeID] = 0 
-		//log.Println("debug 1.4")
 	}
-	// log.Println("debug 2")
 	s.objectMap[key][0].Context.Clock.Increment(s.nodeID) //first position is its own vector clock
 	*result = true
 	var vc VectorClock
@@ -120,21 +113,17 @@ func (s *DynamoServer) Put(value PutArgs, result *bool) error {
 			}
 		}
 	}
-	// log.Println("debug 3")
 	s.objectMap[key] = s.objectMap[key][:i]
 	if sign_concurrent{
 		s.objectMap[key] = append(s.objectMap[key],ObjectEntry{new_context,new_value})
 	}
 	count := 0
-	// log.Println("debug 3.3")
 	for i = 0 ; i < len(s.preferenceList); i++ {
 		if strconv.Itoa(i) == nodeID{
 			count++
 			continue
 		}
-		// log.Println("debug 3.4")
 		if count < wValue{
-			// log.Println("debug 3.4.1")
 			node := s.preferenceList[i]
 			serverAddr := node.Address + ":" + node.Port
 			args := NewPutArgs(key, object[0].Context, object[0].Value) // first position is its own
@@ -146,16 +135,10 @@ func (s *DynamoServer) Put(value PutArgs, result *bool) error {
 				count++
 			}
 		}else{
-			// log.Println("debug 3.4.2")
 			node := s.preferenceList[i]
-			notReplicated_node := (*s).notReplicated[key]
-			if notReplicated_node == nil{
-				s.notReplicated[key] = make([]DynamoNode, 0)
-			}
 			s.notReplicated[key] = append(s.notReplicated[key], node)
 		}
 	}
-	// log.Println("debug 4")
 	if count < wValue{
 		*result = false
 	}
@@ -194,7 +177,6 @@ func (s *DynamoServer) Get(key string, result *DynamoResult) error {
 			if err != nil {
 				return err
 			}
-			// log.Println("after rpc get")
 			// PrintEntryList(s.nodeID,node_result.EntryList)
 			for i = 0 ; i < len(node_result.EntryList); i++ {
 				vc_i := node_result.EntryList[i].Context.Clock
@@ -229,7 +211,6 @@ func (s *DynamoServer) RPCPut(serverAddr string, value *PutArgs) error {
 		log.Println("rpc error: ",e)
 		return e
 	}
-	log.Println("Put RPC Call")
 	// perform the call
 	var success bool
 	err := conn.Call("MyDynamo.PutToPreference", (*value), &success)
@@ -254,7 +235,6 @@ func (s *DynamoServer) PutToPreference(value PutArgs, result *bool) error{
 	object := (*s).objectMap[key]
 	nodeID := (*s).nodeID
 	if object == nil { //meaning this is a new object
-		s.objectMap[key] = make([]ObjectEntry, 0)
 		s.objectMap[key] = append(s.objectMap[key],ObjectEntry{new_context,new_value})
 		s.objectMap[key][0].Context.Clock.CountMap[nodeID] = 0 
 		// s.objectMap[key][0].Context.Clock.Increment(s.nodeID)

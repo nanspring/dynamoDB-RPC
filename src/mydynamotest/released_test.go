@@ -13,7 +13,7 @@ func TestPutW2(t *testing.T){
     go StartDynamoServer(cmd, ready)
     defer KillDynamoServer(cmd)
 
-    time.Sleep(5 * time.Second)
+    time.Sleep(4 * time.Second)
     <-ready
 
     clientInstance0 := MakeConnectedClient(8080)
@@ -39,7 +39,7 @@ func TestGossip(t *testing.T){
     go StartDynamoServer(cmd, ready)
     defer KillDynamoServer(cmd)
 
-    time.Sleep(3 * time.Second)
+    time.Sleep(4 * time.Second)
     <-ready
 
     clientInstance0 := MakeConnectedClient(8080)
@@ -66,7 +66,7 @@ func TestMultipleKeys(t *testing.T){
     go StartDynamoServer(cmd, ready)
     defer KillDynamoServer(cmd)
 
-    time.Sleep(3 * time.Second)
+    time.Sleep(4 * time.Second)
     <-ready
 
     clientInstance0 := MakeConnectedClient(8080)
@@ -111,7 +111,7 @@ func TestDynamoPaper(t *testing.T){
     go StartDynamoServer(cmd, ready)
     defer KillDynamoServer(cmd)
 
-    time.Sleep(3 * time.Second)
+    time.Sleep(4 * time.Second)
     <-ready
 
     clientInstance0 := MakeConnectedClient(8080)
@@ -203,7 +203,7 @@ func TestInvalidPut(t *testing.T){
     go StartDynamoServer(cmd, ready)
     defer KillDynamoServer(cmd)
 
-    time.Sleep(3 * time.Second)
+    time.Sleep(4 * time.Second)
     <-ready
     clientInstance := MakeConnectedClient(8080)
 
@@ -223,7 +223,7 @@ func TestGossipW2(t *testing.T){
     go StartDynamoServer(cmd, ready)
     defer KillDynamoServer(cmd)
 
-    time.Sleep(3 * time.Second)
+    time.Sleep(4 * time.Second)
     <-ready
 
     clientInstance0 := MakeConnectedClient(8080)
@@ -274,7 +274,7 @@ func TestReplaceMultipleVersions(t *testing.T){
     go StartDynamoServer(cmd, ready)
     defer KillDynamoServer(cmd)
 
-    time.Sleep(3 * time.Second)
+    time.Sleep(4 * time.Second)
     <-ready
 
     clientInstance0 := MakeConnectedClient(8080)
@@ -323,7 +323,7 @@ func TestConsistent(t *testing.T){
     go StartDynamoServer(cmd, ready)
     defer KillDynamoServer(cmd)
 
-    time.Sleep(3 * time.Second)
+    time.Sleep(4 * time.Second)
     <-ready
 
     clientInstance0 := MakeConnectedClient(8080)
