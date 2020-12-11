@@ -193,19 +193,23 @@ func (s *DynamoServer) Get(key string, result *DynamoResult) error {
 			if err != nil {
 				return err
 			}
-			for i = 0 ; i < len(node_result.EntryList); i++ {
+			log.Println("after rpc get")
+			PrintEntryList(s.nodeID,node_result.EntryList)
+			for i = 0 ; i < len(node_result.EntryList); i++ { // preference clock
 				vc_i := node_result.EntryList[i].Context.Clock
-				for j=0; j < len((*result).EntryList); j++ {
+				for j=0; j < len((*result).EntryList); j++ { // result entrylist clock
 					vc_j := (*result).EntryList[j].Context.Clock
+					log.Println(vc_i.Equals(vc_j))
 					if vc_i.Equals(vc_j) || vc_i.LessThan(vc_j){
 						break
 					}
-				}
-				(*result).EntryList = append((*result).EntryList, node_result.EntryList[i])
+					(*result).EntryList = append((*result).EntryList, node_result.EntryList[i])
+				}	
 			}	
 			count++	
 		}
 	}
+	PrintEntryList(s.nodeID,(*result).EntryList)
 	reserve_list := make([]bool, len((*result).EntryList))
 	for i = 0 ; i < len((*result).EntryList); i++ {
 		vc_i := (*result).EntryList[i].Context.Clock
@@ -228,6 +232,7 @@ func (s *DynamoServer) Get(key string, result *DynamoResult) error {
 		j++
 	}
 	(*result).EntryList = (*result).EntryList[:i]
+	PrintEntryList(s.nodeID,(*result).EntryList)
 	return nil
 }
 
@@ -261,7 +266,6 @@ func (s *DynamoServer) PutToPreference(value PutArgs, result *bool) error{
 	new_value := value.Value
 	new_context := value.Context
 	object := (*s).objectMap[key]
-	//nodeID := s.nodeID
 	if object == nil { //meaning this is a new object
 		s.objectMap[key] = make([]ObjectEntry, 0)
 		s.objectMap[key] = append(s.objectMap[key],ObjectEntry{new_context,new_value})

@@ -66,4 +66,19 @@ func PrintObjectMap(nodeID string, objectMap map[string][]ObjectEntry) {
 	}
 	log.Println("================")
 }
+
+func PrintEntryList(nodeID string, entryList []ObjectEntry){
+	log.Println("========OBJECT ENTRY========")
+	log.Println("NODE ID: ", nodeID)
+	for i:=0; i<len(entryList); i++{
+		oe := entryList[i]
+		var temp string
+		for k,v := range(oe.Context.Clock.CountMap){
+			temp += "["+k+","+strconv.Itoa(v)+"]"
+		}
+		temp += "{ "+string(oe.Value)+" }"
+		log.Println(temp)
+	}
+	log.Println("========OBJECT ENTRY========")
+}
 	
