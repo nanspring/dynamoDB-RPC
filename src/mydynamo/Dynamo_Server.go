@@ -19,10 +19,23 @@ type DynamoServer struct {
 	selfNode       DynamoNode   //This node's address and port info
 	nodeID         string       //ID of this node
 	crash          bool
-	objectMap	   map[string]map[string]ObjectEntry
-	noReplicated   []DynamoNode // not replicated node lists
+	objectMap	   map[string][]ObjectEntry //store the put operation 
+	notReplicated   []DynamoNode // not replicated node lists
 
 }
+
+type GetArgs struct {
+	Key     string
+	serverAddr string
+}
+
+func NewGetArgs(key string, serverAddr string) GetArgs {
+	return GetArgs{
+		Key:     key,
+		serverAddr: serverAddr, 
+	}
+}
+
 
 func (s *DynamoServer) SendPreferenceList(incomingList []DynamoNode, _ *Empty) error {
 	s.preferenceList = incomingList
@@ -37,7 +50,6 @@ func (s *DynamoServer) Gossip(_ Empty, _ *Empty) error {
 
 //Makes server unavailable for some seconds
 func (s *DynamoServer) Crash(seconds int, success *bool) error {
-	//panic("todo")
 	s.crash = true
 	go func() { 
 		time.Sleep(time.Duration(seconds) * time.Second) 
@@ -49,89 +61,235 @@ func (s *DynamoServer) Crash(seconds int, success *bool) error {
 // Put a file to this server and W other servers
 func (s *DynamoServer) Put(value PutArgs, result *bool) error {
 	if s.crash {
-		&result = false
-		return errors.New("node crash")
-	}
-	wValue := s.wValue 
-	key := value.Key
-	new_context := value.Context
-	value := value.Value
-	nodeID := s.nodeID
-	object := s.objectMap[key][nodeID]
-	noReplicated := s.noReplicated
-	if object == nil { //meaning this is a new object
-		s.objectMap[key][nodeID] = ObjectEntry{NewContext(NewVectorClock()),value}
-		&s.objectMap[key][nodeID].Context.Clock.countMap[strconv.Itoa(nodeID)] = 0
-	}
-	old_context := object.Context
-	old_context.Clock.Increment(s.nodeID)
-	if old_context.Clock.LessThan(new_context.Clock) { //new context is casually descent from old context, 
-		&s.objectMap[key][nodeID].value = value
-		&s.objectMap[key][nodeID].Context.Clock.countMap[strconv.Itoa(nodeID)] = new_context.Clock.countMap[strconv.Itoa(nodeID)]
-	}else if old_context.Clock.Concurrent(new_context.Clock) {
-		// elment-wise max ? 
-	}
-	var count int
-	count = 0
-	for i := 0 ; i < len(s.preferenceList); i++ {
-		node := s.preferenceList[i]
-		serverAddr := node.Address + ":" + node.Port
-
-		e = s.RPCPut(serverAddr, PutFreshContext(key, &s.objectMap[key][nodeID].value)
-	}
-	
-
-
-}
-
-//Get a file from this server, matched with R other servers
-func (s *DynamoServer) Get(key string, result *DynamoResult) error {
-	panic("todo")
-}
-
-
-func (s *DynamoServer) RPCPut(serverAddr, value PutArgs) bool {
-	conn, e := rpc.Dial("tcp", serverAddr)
-	if e != nil {
-		return e
-	}
-
-	// perform the call
-	success := new(bool)
-	e = conn.Call("MyDynamo.PutToPreference", value, success)
-	if e != nil {
-		conn.Close()
-		return e
-	}
-
-	// close the connection
-	conn.Close()
-	return &success
-}
-func (s *DynamoServer) PutToPreference(value PutArgs, success *bool){
-	if s.crash {
 		*result = false
 		return errors.New("node crash")
 	}
 	wValue := s.wValue 
 	key := value.Key
+	new_value := value.Value
 	new_context := value.Context
-	value := value.Value
+	object := (*s).objectMap[key]
 	nodeID := s.nodeID
-	object := s.objectMap[key][nodeID]
-	noReplicated := s.noReplicated
 	if object == nil { //meaning this is a new object
-		s.objectMap[key][nodeID] = ObjectEntry{NewContext(NewVectorClock()),value}
-		&s.objectMap[key][nodeID].Context.Clock.countMap[strconv.Itoa(nodeID)] = 0
+		s.objectMap[key] = make([]ObjectEntry, 0)
+		s.objectMap[key] = append(s.objectMap[key],ObjectEntry{NewContext(NewVectorClock()),new_value})
+		object[0].Context.Clock.countMap[nodeID] = 0 
 	}
-	old_context := object.Context
-	old_context.Clock.Increment(s.nodeID)
-	if old_context.Clock.LessThan(new_context.Clock) { //new context is casually descent from old context, 
-		&s.objectMap[key][nodeID].Value = make([]byte, len(value))
-		copy(&s.objectMap[key][nodeID].Value, value)
-		&s.objectMap[key][nodeID].Context.Clock.countMap[strconv.Itoa(nodeID)] = new_context.Clock.countMap[strconv.Itoa(nodeID)]
+	object[0].Context.Clock.Increment(s.nodeID) //first position is its own vector clock
+	*result = true
+	var vc VectorClock
+	sign_replace := false
+	sign_concurrent := false
+	i := 0
+	for _, x := range object {
+		vc = x.Context.Clock
+		if vc.LessThan(new_context.Clock){ //new context is casually descent from old context
+			if !sign_replace{
+				object[i] = ObjectEntry{NewContext(new_context.Clock),new_value}
+				sign_replace = true
+				i++
+			}
+		}else {
+			*result = false
+			object[i] = x
+			i++
+			if vc.Concurrent(new_context.Clock) {
+				sign_concurrent = true
+			}
+		}
 	}
+	object = object[:i]
+	if sign_concurrent{
+		s.objectMap[key] = append(s.objectMap[key],ObjectEntry{new_context,new_value})
+	}
+	count := 0
+	for i = 0 ; i < len(s.preferenceList); i++ {
+		if strconv.Itoa(i) == nodeID{
+			count++
+			continue
+		}
+		if count < wValue{
+			node := s.preferenceList[i]
+			serverAddr := node.Address + ":" + node.Port
+			args := NewPutArgs(key, object[0].Context, object[0].Value)
+			err := s.RPCPut(serverAddr, &args)
+			if err != nil {
+				*result = false
+				return err
+			}else{
+				count++
+			}
+		}else{
+			node := s.preferenceList[i]
+			s.notReplicated = append(s.notReplicated, node)
+		}
+	}
+	if count < wValue{
+		*result = false
+	}
+	return nil
+}
 
+//Get a file from this server, matched with R other servers
+func (s *DynamoServer) Get(key string, result *DynamoResult) error {
+	if s.crash {
+		return errors.New("node crash")
+	}
+	rValue := s.rValue 
+	object := (*s).objectMap[key]
+	var node_result DynamoResult
+	if object == nil {
+		return errors.New("Value Empty")
+	}
+	i := 0
+	j := 0
+	for i = 0 ; i < len(object); i++ {
+		(*result).EntryList = append((*result).EntryList , object[i])
+	}
+	count := 0
+	for i = 0 ; i < len(s.preferenceList); i++ {
+		if strconv.Itoa(i) == s.nodeID{
+			count++
+			continue
+		}
+		if count < rValue{
+			node := s.preferenceList[i]
+			serverAddr := node.Address + ":" + node.Port
+			args := NewGetArgs(key, serverAddr)
+			err := s.RPCGet(args, &node_result)
+			if err != nil {
+				return err
+			}
+			for i = 0 ; i < len(node_result.EntryList); i++ {
+				vc_i := node_result.EntryList[i].Context.Clock
+				for j=0; j < len((*result).EntryList); j++ {
+					vc_j := (*result).EntryList[j].Context.Clock
+					if vc_i.Equals(vc_j) || vc_i.LessThan(vc_j){
+						break
+					}
+				}
+				(*result).EntryList = append((*result).EntryList, node_result.EntryList[i])
+			}	
+			count++	
+		}
+	}
+	reserve_list := make([]bool, len((*result).EntryList))
+	for i = 0 ; i < len((*result).EntryList); i++ {
+		vc_i := (*result).EntryList[i].Context.Clock
+		for j=i+1; j < len((*result).EntryList); j++ {
+			vc_j := (*result).EntryList[j].Context.Clock
+			if vc_i.LessThan(vc_j){
+				reserve_list[i] = false
+				break
+			}
+		}
+		reserve_list[i] = true
+	}
+	i = 0 
+	j = 0 
+	for _, x := range (*result).EntryList {
+		if reserve_list[j]{
+			(*result).EntryList[i] = x
+			i++
+		}
+		j++
+	}
+	(*result).EntryList = (*result).EntryList[:i]
+	return nil
+}
+
+
+func (s *DynamoServer) RPCPut(serverAddr string, value *PutArgs) error {
+	conn, e := rpc.DialHTTP("tcp", serverAddr)
+	if e != nil {
+		return e
+	}
+	// perform the call
+	var success bool
+	err := conn.Call("MyDynamo.PutToPreference", (*value), &success)
+	if err != nil {
+		conn.Close()
+		return err
+	}
+	// close the connection
+	return conn.Close()
+}
+
+
+func (s *DynamoServer) PutToPreference(value PutArgs, result *bool) error{
+	if s.crash {
+		*result = false
+		return errors.New("node crash")
+	}
+	key := value.Key
+	new_value := value.Value
+	new_context := value.Context
+	object := (*s).objectMap[key]
+	nodeID := s.nodeID
+	if object == nil { //meaning this is a new object
+		s.objectMap[key] = make([]ObjectEntry, 0)
+		s.objectMap[key] = append(s.objectMap[key],ObjectEntry{NewContext(NewVectorClock()),new_value})
+		object[0].Context.Clock.countMap[nodeID] = 0 
+	}
+	object[0].Context.Clock.Increment(s.nodeID) //first position is its own vector clock
+	*result = true
+	var vc VectorClock
+	sign_replace := false
+	sign_concurrent := false
+	i := 0
+	for _, x := range object {
+		vc = x.Context.Clock
+		if vc.LessThan(new_context.Clock){ //new context is casually descent from old context
+			if !sign_replace{
+				object[i] = ObjectEntry{NewContext(new_context.Clock),new_value}
+				sign_replace = true
+				i++
+			}
+		}else {
+			*result = false
+			object[i] = x
+			i++
+			if vc.Concurrent(new_context.Clock) {
+				sign_concurrent = true
+			}
+		}
+	}
+	object = object[:i]
+	if sign_concurrent{
+		s.objectMap[key] = append(s.objectMap[key],ObjectEntry{new_context,new_value})
+	}
+	return nil
+}
+
+
+func (s *DynamoServer) RPCGet(value GetArgs, result *DynamoResult) error {
+	serverAddr := value.serverAddr
+	key := value.Key
+	conn, e := rpc.DialHTTP("tcp", serverAddr)
+	if e != nil {
+		return e
+	}
+	err := conn.Call("MyDynamo.GetFromPreference", key, result)
+	if err != nil {
+		return conn.Close()
+	}
+	// close the connection
+	return conn.Close()
+}
+
+
+func (s *DynamoServer) GetFromPreference(key string, result *DynamoResult) error{
+	if s.crash {
+		return errors.New("node crash")
+	}
+	object := (*s).objectMap[key]
+	if object == nil {
+		return errors.New("Value Empty")
+	}
+	for i := 0 ; i < len(object); i++ {
+		(*result).EntryList = append((*result).EntryList , object[i])
+	}
+	return nil
 }
 
 
@@ -150,7 +308,8 @@ func NewDynamoServer(w int, r int, hostAddr string, hostPort string, id string) 
 		selfNode:       selfNodeInfo,
 		nodeID:         id,
 		crash: false,
-		objectMap: make(map[string]ObjectEntry)}
+		objectMap: make(map[string][]ObjectEntry), 
+		notReplicated: make([]DynamoNode, 0)}
 }
 
 func ServeDynamoServer(dynamoServer DynamoServer) error {
