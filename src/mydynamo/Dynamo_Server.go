@@ -20,7 +20,7 @@ type DynamoServer struct {
 	nodeID         string       //ID of this node
 	crash          bool
 	objectMap	   map[string][]ObjectEntry //store the put operation 
-	notReplicated   []DynamoNode // not replicated node lists
+	notReplicated   map[string][]DynamoNode // not replicated node lists
 
 }
 
@@ -45,7 +45,22 @@ func (s *DynamoServer) SendPreferenceList(incomingList []DynamoNode, _ *Empty) e
 // Forces server to gossip
 // As this method takes no arguments, we must use the Empty placeholder
 func (s *DynamoServer) Gossip(_ Empty, _ *Empty) error {
-	panic("todo")
+	for key, nodes := range s.notReplicated{
+		object := (*s).objectMap[key]
+		for i := 0 ; i < len(nodes); i++ {
+			node := nodes[i]
+			serverAddr := node.Address + ":" + node.Port
+			for j := 0 ; j< len(object); j++ {
+				args := NewPutArgs(key, object[j].Context, object[j].Value)
+				err := s.RPCPut(serverAddr, &args)
+				if err != nil {
+					continue
+				}
+			}
+		}
+		s.notReplicated[key] = make([]DynamoNode, 0)
+	}
+	return nil
 }
 
 //Makes server unavailable for some seconds
@@ -121,7 +136,11 @@ func (s *DynamoServer) Put(value PutArgs, result *bool) error {
 			}
 		}else{
 			node := s.preferenceList[i]
-			s.notReplicated = append(s.notReplicated, node)
+			notReplicated_node := (*s).notReplicated[key]
+			if notReplicated_node == nil{
+				s.notReplicated[key] = make([]DynamoNode, 0)
+			}
+			s.notReplicated[key] = append(s.notReplicated[key], node)
 		}
 	}
 	if count < wValue{
@@ -309,7 +328,7 @@ func NewDynamoServer(w int, r int, hostAddr string, hostPort string, id string) 
 		nodeID:         id,
 		crash: false,
 		objectMap: make(map[string][]ObjectEntry), 
-		notReplicated: make([]DynamoNode, 0)}
+		notReplicated: make(map[string][]DynamoNode)}
 }
 
 func ServeDynamoServer(dynamoServer DynamoServer) error {
