@@ -180,7 +180,7 @@ func (s *DynamoServer) Get(key string, result *DynamoResult) error {
 		if serverAddr == this_serverAddr{
 			count++
 			continue
-		   }
+		}
 		if count < rValue{
 			args := NewGetArgs(key, serverAddr)
 			err := s.RPCGet(args, &node_result)
@@ -194,7 +194,7 @@ func (s *DynamoServer) Get(key string, result *DynamoResult) error {
 				sign = true
 				for _, x := range (*result).EntryList {
 					vc_x := x.Context.Clock
-					if !vc_x.LessThan(vc_i){
+					if vc_x.Equals(vc_i) || !vc_x.LessThan(vc_i){
 						(*result).EntryList[j] = x
 						j++
 					}

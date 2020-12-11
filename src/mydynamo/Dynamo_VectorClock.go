@@ -22,6 +22,19 @@ func NewVectorClock() VectorClock {
 
 //Returns true if the other VectorClock is causally descended from this one
 func (s VectorClock) LessThan(otherClock VectorClock) bool {
+	if len(s.CountMap) < len(otherClock.CountMap){
+		for nodeId, _ := range otherClock.CountMap{
+			if _, ok := s.CountMap[nodeId]; !ok{
+				s.CountMap[nodeId] = 0
+			}
+		}
+	}else if len(s.CountMap) > len(otherClock.CountMap){
+		for nodeId, _ := range s.CountMap{
+			if _, ok := otherClock.CountMap[nodeId]; !ok{
+				otherClock.CountMap[nodeId] = 0
+			}
+		}
+	}
 	for nodeID, version := range s.CountMap{
 		if version > otherClock.CountMap[nodeID]{
 			return false
@@ -59,6 +72,19 @@ func (s *VectorClock) Combine(clocks []VectorClock) {
 
 //Tests if two VectorClocks are equal
 func (s *VectorClock) Equals(otherClock VectorClock) bool {
+	if len(s.CountMap) < len(otherClock.CountMap){
+		for nodeId, _ := range otherClock.CountMap{
+			if _, ok := s.CountMap[nodeId]; !ok{
+				s.CountMap[nodeId] = 0
+			}
+		}
+	}else if len(s.CountMap) > len(otherClock.CountMap){
+		for nodeId, _ := range s.CountMap{
+			if _, ok := otherClock.CountMap[nodeId]; !ok{
+				otherClock.CountMap[nodeId] = 0
+			}
+		}
+	}
 	for nodeID, version := range s.CountMap {
 		if version != otherClock.CountMap[nodeID]{
 			return false
