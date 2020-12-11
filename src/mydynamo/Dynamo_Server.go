@@ -79,7 +79,7 @@ func (s *DynamoServer) Put(value PutArgs, result *bool) error {
 		*result = false
 		return errors.New("node crash")
 	}
-	log.Println("debug 1")
+	// log.Println("debug 1")
 	wValue := s.wValue 
 	key := value.Key
 	new_value := value.Value
@@ -95,7 +95,7 @@ func (s *DynamoServer) Put(value PutArgs, result *bool) error {
 		s.objectMap[key][0].Context.Clock.CountMap[nodeID] = 0 
 		//log.Println("debug 1.4")
 	}
-	log.Println("debug 2")
+	// log.Println("debug 2")
 	s.objectMap[key][0].Context.Clock.Increment(s.nodeID) //first position is its own vector clock
 	*result = true
 	var vc VectorClock
@@ -107,37 +107,37 @@ func (s *DynamoServer) Put(value PutArgs, result *bool) error {
 		vc = x.Context.Clock
 		if vc.LessThan(new_context.Clock){ //new context is casually descent from old context
 			if !sign_replace{
-				object[i] = ObjectEntry{NewContext(new_context.Clock),new_value}
+				s.objectMap[key][i] = ObjectEntry{NewContext(new_context.Clock),new_value}
 				sign_replace = true
 				i++
 			}
 		}else {
 			*result = false
-			object[i] = x
+			s.objectMap[key][i] = x
 			i++
 			if vc.Concurrent(new_context.Clock) {
 				sign_concurrent = true
 			}
 		}
 	}
-	log.Println("debug 3")
-	object = object[:i]
+	// log.Println("debug 3")
+	s.objectMap[key] = s.objectMap[key][:i]
 	if sign_concurrent{
 		s.objectMap[key] = append(s.objectMap[key],ObjectEntry{new_context,new_value})
 	}
 	count := 0
-	log.Println("debug 3.3")
+	// log.Println("debug 3.3")
 	for i = 0 ; i < len(s.preferenceList); i++ {
 		if strconv.Itoa(i) == nodeID{
 			count++
 			continue
 		}
-		log.Println("debug 3.4")
+		// log.Println("debug 3.4")
 		if count < wValue{
-			log.Println("debug 3.4.1")
+			// log.Println("debug 3.4.1")
 			node := s.preferenceList[i]
 			serverAddr := node.Address + ":" + node.Port
-			args := NewPutArgs(key, object[0].Context, object[0].Value)
+			args := NewPutArgs(key, object[0].Context, object[0].Value) // first position is its own
 			err := s.RPCPut(serverAddr, &args)
 			if err != nil {
 				*result = false
@@ -146,7 +146,7 @@ func (s *DynamoServer) Put(value PutArgs, result *bool) error {
 				count++
 			}
 		}else{
-			log.Println("debug 3.4.2")
+			// log.Println("debug 3.4.2")
 			node := s.preferenceList[i]
 			notReplicated_node := (*s).notReplicated[key]
 			if notReplicated_node == nil{
@@ -155,11 +155,11 @@ func (s *DynamoServer) Put(value PutArgs, result *bool) error {
 			s.notReplicated[key] = append(s.notReplicated[key], node)
 		}
 	}
-	log.Println("debug 4")
+	// log.Println("debug 4")
 	if count < wValue{
 		*result = false
 	}
-	PrintObjectMap(s.nodeID, s.objectMap)
+	// PrintObjectMap(s.nodeID, s.objectMap)
 	return nil
 }
 
@@ -171,8 +171,9 @@ func (s *DynamoServer) Get(key string, result *DynamoResult) error {
 	rValue := s.rValue 
 	object := (*s).objectMap[key]
 	var node_result DynamoResult
+	var sign bool
 	if object == nil {
-		return errors.New("Value Empty")
+		return errors.New("value empty")
 	}
 	i := 0
 	j := 0
@@ -193,46 +194,31 @@ func (s *DynamoServer) Get(key string, result *DynamoResult) error {
 			if err != nil {
 				return err
 			}
-			log.Println("after rpc get")
-			PrintEntryList(s.nodeID,node_result.EntryList)
-			for i = 0 ; i < len(node_result.EntryList); i++ { // preference clock
+			// log.Println("after rpc get")
+			// PrintEntryList(s.nodeID,node_result.EntryList)
+			for i = 0 ; i < len(node_result.EntryList); i++ {
 				vc_i := node_result.EntryList[i].Context.Clock
-				for j=0; j < len((*result).EntryList); j++ { // result entrylist clock
-					vc_j := (*result).EntryList[j].Context.Clock
-					log.Println(vc_i.Equals(vc_j))
-					if vc_i.Equals(vc_j) || vc_i.LessThan(vc_j){
-						break
+				j = 0 
+				sign = true
+				for _, x := range (*result).EntryList {
+					vc_x := x.Context.Clock
+					if !vc_x.LessThan(vc_i){
+						(*result).EntryList[j] = x
+						j++
 					}
+					if vc_i.Equals(vc_x) || vc_i.LessThan(vc_x){
+						sign = false
+					}	
+				}
+				(*result).EntryList = (*result).EntryList[:j]
+				if sign{
 					(*result).EntryList = append((*result).EntryList, node_result.EntryList[i])
-				}	
+				}
 			}	
 			count++	
 		}
 	}
-	PrintEntryList(s.nodeID,(*result).EntryList)
-	reserve_list := make([]bool, len((*result).EntryList))
-	for i = 0 ; i < len((*result).EntryList); i++ {
-		vc_i := (*result).EntryList[i].Context.Clock
-		for j=i+1; j < len((*result).EntryList); j++ {
-			vc_j := (*result).EntryList[j].Context.Clock
-			if vc_i.LessThan(vc_j){
-				reserve_list[i] = false
-				break
-			}
-		}
-		reserve_list[i] = true
-	}
-	i = 0 
-	j = 0 
-	for _, x := range (*result).EntryList {
-		if reserve_list[j]{
-			(*result).EntryList[i] = x
-			i++
-		}
-		j++
-	}
-	(*result).EntryList = (*result).EntryList[:i]
-	PrintEntryList(s.nodeID,(*result).EntryList)
+	// PrintEntryList(s.nodeID,(*result).EntryList)
 	return nil
 }
 
@@ -266,10 +252,11 @@ func (s *DynamoServer) PutToPreference(value PutArgs, result *bool) error{
 	new_value := value.Value
 	new_context := value.Context
 	object := (*s).objectMap[key]
+	nodeID := (*s).nodeID
 	if object == nil { //meaning this is a new object
 		s.objectMap[key] = make([]ObjectEntry, 0)
 		s.objectMap[key] = append(s.objectMap[key],ObjectEntry{new_context,new_value})
-		// s.objectMap[key][0].Context.Clock.CountMap[nodeID] = 0 
+		s.objectMap[key][0].Context.Clock.CountMap[nodeID] = 0 
 		// s.objectMap[key][0].Context.Clock.Increment(s.nodeID)
 		
 	}else{
@@ -283,27 +270,29 @@ func (s *DynamoServer) PutToPreference(value PutArgs, result *bool) error{
 			vc = x.Context.Clock
 			if vc.LessThan(new_context.Clock){ //new context is casually descent from old context
 				if !sign_replace{
-					object[i] = ObjectEntry{NewContext(new_context.Clock),new_value}
+					// replace the context with new context only once
+					s.objectMap[key][i] = ObjectEntry{NewContext(new_context.Clock),new_value}
 					sign_replace = true
 					i++
 				}
+				// else not save the old context 
 			}else {
+				// only save the new context if it concurrent with existing one
 				*result = false
-				object[i] = x
+				s.objectMap[key][i] = x
 				i++
 				if vc.Concurrent(new_context.Clock) {
 					sign_concurrent = true
 				}
 			}
+			// only first i should be kept, others are garbage collect 
+			s.objectMap[key] = s.objectMap[key][:i]
+			if sign_concurrent{
+				s.objectMap[key] = append(s.objectMap[key],ObjectEntry{new_context,new_value})
+			}
 		}
-		object = object[:i]
-		if sign_concurrent{
-			s.objectMap[key] = append(s.objectMap[key],ObjectEntry{new_context,new_value})
-		}
-
 	}
-	
-	PrintObjectMap(s.nodeID, s.objectMap)
+	// PrintObjectMap(s.nodeID, s.objectMap)
 	return nil
 }
 
@@ -330,7 +319,7 @@ func (s *DynamoServer) GetFromPreference(key string, result *DynamoResult) error
 	}
 	object := (*s).objectMap[key]
 	if object == nil {
-		return errors.New("Value Empty")
+		return errors.New("value empty")
 	}
 	for i := 0 ; i < len(object); i++ {
 		(*result).EntryList = append((*result).EntryList , object[i])
