@@ -256,44 +256,49 @@ func (s *DynamoServer) PutToPreference(value PutArgs, result *bool) error{
 		*result = false
 		return errors.New("node crash")
 	}
+	*result = true
 	key := value.Key
 	new_value := value.Value
 	new_context := value.Context
 	object := (*s).objectMap[key]
-	nodeID := s.nodeID
+	//nodeID := s.nodeID
 	if object == nil { //meaning this is a new object
 		s.objectMap[key] = make([]ObjectEntry, 0)
-		s.objectMap[key] = append(s.objectMap[key],ObjectEntry{NewContext(NewVectorClock()),new_value})
-		s.objectMap[key][0].Context.Clock.CountMap[nodeID] = 0 
-	}
-	s.objectMap[key][0].Context.Clock.Increment(s.nodeID) //first position is its own vector clock
-	*result = true
-	var vc VectorClock
-	sign_replace := false
-	sign_concurrent := false
-	i := 0
-	object = (*s).objectMap[key]
-	for _, x := range object {
-		vc = x.Context.Clock
-		if vc.LessThan(new_context.Clock){ //new context is casually descent from old context
-			if !sign_replace{
-				object[i] = ObjectEntry{NewContext(new_context.Clock),new_value}
-				sign_replace = true
+		s.objectMap[key] = append(s.objectMap[key],ObjectEntry{new_context,new_value})
+		// s.objectMap[key][0].Context.Clock.CountMap[nodeID] = 0 
+		// s.objectMap[key][0].Context.Clock.Increment(s.nodeID)
+		
+	}else{
+		 //first position is its own vector clock
+		var vc VectorClock
+		sign_replace := false
+		sign_concurrent := false
+		i := 0
+		object = (*s).objectMap[key]
+		for _, x := range object {
+			vc = x.Context.Clock
+			if vc.LessThan(new_context.Clock){ //new context is casually descent from old context
+				if !sign_replace{
+					object[i] = ObjectEntry{NewContext(new_context.Clock),new_value}
+					sign_replace = true
+					i++
+				}
+			}else {
+				*result = false
+				object[i] = x
 				i++
-			}
-		}else {
-			*result = false
-			object[i] = x
-			i++
-			if vc.Concurrent(new_context.Clock) {
-				sign_concurrent = true
+				if vc.Concurrent(new_context.Clock) {
+					sign_concurrent = true
+				}
 			}
 		}
+		object = object[:i]
+		if sign_concurrent{
+			s.objectMap[key] = append(s.objectMap[key],ObjectEntry{new_context,new_value})
+		}
+
 	}
-	object = object[:i]
-	if sign_concurrent{
-		s.objectMap[key] = append(s.objectMap[key],ObjectEntry{new_context,new_value})
-	}
+	
 	PrintObjectMap(s.nodeID, s.objectMap)
 	return nil
 }
