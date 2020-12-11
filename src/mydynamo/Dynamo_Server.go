@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"net/rpc"
 	"time"
-	"strconv"
 	"errors"
 )
 
@@ -45,20 +44,29 @@ func (s *DynamoServer) SendPreferenceList(incomingList []DynamoNode, _ *Empty) e
 // Forces server to gossip
 // As this method takes no arguments, we must use the Empty placeholder
 func (s *DynamoServer) Gossip(_ Empty, _ *Empty) error {
+	var i int 
+	var err_flag bool
 	for key, nodes := range (*s).notReplicated{
 		object := (*s).objectMap[key]
-		for i := 0 ; i < len(nodes); i++ {
-			node := nodes[i]
+		i = 0 
+		for _, node := range nodes {
+			err_flag = false
 			serverAddr := node.Address + ":" + node.Port
 			for j := 0 ; j< len(object); j++ {
 				args := NewPutArgs(key, object[j].Context, object[j].Value)
 				err := s.RPCPut(serverAddr, &args)
 				if err != nil { // deal with crash case 
 					log.Println(err)
+					err_flag = true
 				}
 			}
+			if err_flag{
+				// for crash case, keep the node as not replicated and do it next time 
+				nodes[i] = node
+				i++
+			}
 		}
-		
+		s.notReplicated[key] = s.notReplicated[key][:i]
 	}
 	return nil
 }
@@ -89,7 +97,6 @@ func (s *DynamoServer) Put(value PutArgs, result *bool) error {
 		s.objectMap[key] = append(s.objectMap[key],ObjectEntry{NewContext(NewVectorClock()),new_value})
 		s.objectMap[key][0].Context.Clock.CountMap[nodeID] = 0 
 	}
-	s.objectMap[key][0].Context.Clock.Increment(s.nodeID) //first position is its own vector clock
 	*result = true
 	var vc VectorClock
 	sign_replace := false
@@ -117,15 +124,17 @@ func (s *DynamoServer) Put(value PutArgs, result *bool) error {
 	if sign_concurrent{
 		s.objectMap[key] = append(s.objectMap[key],ObjectEntry{new_context,new_value})
 	}
+	s.objectMap[key][0].Context.Clock.Increment(s.nodeID) //first position is its own vector clock
 	count := 0
 	for i = 0 ; i < len(s.preferenceList); i++ {
-		if strconv.Itoa(i) == nodeID{
+		node := s.preferenceList[i]
+		serverAddr := node.Address + ":" + node.Port
+		this_serverAddr := s.selfNode.Address + ":" + s.selfNode.Port
+		if serverAddr == this_serverAddr{
 			count++
 			continue
 		}
 		if count < wValue{
-			node := s.preferenceList[i]
-			serverAddr := node.Address + ":" + node.Port
 			args := NewPutArgs(key, object[0].Context, object[0].Value) // first position is its own
 			err := s.RPCPut(serverAddr, &args)
 			if err != nil {
@@ -165,13 +174,14 @@ func (s *DynamoServer) Get(key string, result *DynamoResult) error {
 	}
 	count := 0
 	for i = 0 ; i < len(s.preferenceList); i++ {
-		if strconv.Itoa(i) == s.nodeID{
+		node := s.preferenceList[i]
+		serverAddr := node.Address + ":" + node.Port
+		this_serverAddr := s.selfNode.Address + ":" + s.selfNode.Port
+		if serverAddr == this_serverAddr{
 			count++
 			continue
-		}
+		   }
 		if count < rValue{
-			node := s.preferenceList[i]
-			serverAddr := node.Address + ":" + node.Port
 			args := NewGetArgs(key, serverAddr)
 			err := s.RPCGet(args, &node_result)
 			if err != nil {
