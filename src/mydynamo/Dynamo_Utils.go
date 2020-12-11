@@ -1,5 +1,10 @@
 package mydynamo
 
+import(
+	"log"
+	"strconv"
+)
+
 //Removes an element at the specified index from a list of ObjectEntry structs
 func remove(list []ObjectEntry, index int) []ObjectEntry {
 	return append(list[:index], list[index+1:]...)
@@ -42,5 +47,23 @@ func NewDynamoNode(addr string, port string) DynamoNode {
 		Address: addr,
 		Port:    port,
 	}
+}
+
+func PrintObjectMap(nodeID string, objectMap map[string][]ObjectEntry) {
+	log.Println("================")
+	log.Println("NODE ID: ", nodeID)
+	for key, value := range objectMap {
+		var temp string
+		for i:=0; i<len(value); i++ {
+			temp += "{ "
+			for vkey, vvalue := range value[i].Context.Clock.CountMap {
+				temp += "["+vkey+","+strconv.Itoa(vvalue)+"]"
+			}
+			temp += " }"
+		} 
+		
+		log.Println(key, temp)
+	}
+	log.Println("================")
 }
 	

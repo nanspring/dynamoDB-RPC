@@ -102,6 +102,7 @@ func (s *DynamoServer) Put(value PutArgs, result *bool) error {
 	sign_replace := false
 	sign_concurrent := false
 	i := 0
+	object = (*s).objectMap[key]
 	for _, x := range object {
 		vc = x.Context.Clock
 		if vc.LessThan(new_context.Clock){ //new context is casually descent from old context
@@ -125,12 +126,15 @@ func (s *DynamoServer) Put(value PutArgs, result *bool) error {
 		s.objectMap[key] = append(s.objectMap[key],ObjectEntry{new_context,new_value})
 	}
 	count := 0
+	log.Println("debug 3.3")
 	for i = 0 ; i < len(s.preferenceList); i++ {
 		if strconv.Itoa(i) == nodeID{
 			count++
 			continue
 		}
+		log.Println("debug 3.4")
 		if count < wValue{
+			log.Println("debug 3.4.1")
 			node := s.preferenceList[i]
 			serverAddr := node.Address + ":" + node.Port
 			args := NewPutArgs(key, object[0].Context, object[0].Value)
@@ -142,6 +146,7 @@ func (s *DynamoServer) Put(value PutArgs, result *bool) error {
 				count++
 			}
 		}else{
+			log.Println("debug 3.4.2")
 			node := s.preferenceList[i]
 			notReplicated_node := (*s).notReplicated[key]
 			if notReplicated_node == nil{
@@ -154,6 +159,7 @@ func (s *DynamoServer) Put(value PutArgs, result *bool) error {
 	if count < wValue{
 		*result = false
 	}
+	PrintObjectMap(s.nodeID, s.objectMap)
 	return nil
 }
 
@@ -229,8 +235,10 @@ func (s *DynamoServer) Get(key string, result *DynamoResult) error {
 func (s *DynamoServer) RPCPut(serverAddr string, value *PutArgs) error {
 	conn, e := rpc.DialHTTP("tcp", serverAddr)
 	if e != nil {
+		log.Println("rpc error: ",e)
 		return e
 	}
+	log.Println("Put RPC Call")
 	// perform the call
 	var success bool
 	err := conn.Call("MyDynamo.PutToPreference", (*value), &success)
@@ -256,14 +264,15 @@ func (s *DynamoServer) PutToPreference(value PutArgs, result *bool) error{
 	if object == nil { //meaning this is a new object
 		s.objectMap[key] = make([]ObjectEntry, 0)
 		s.objectMap[key] = append(s.objectMap[key],ObjectEntry{NewContext(NewVectorClock()),new_value})
-		object[0].Context.Clock.CountMap[nodeID] = 0 
+		s.objectMap[key][0].Context.Clock.CountMap[nodeID] = 0 
 	}
-	object[0].Context.Clock.Increment(s.nodeID) //first position is its own vector clock
+	s.objectMap[key][0].Context.Clock.Increment(s.nodeID) //first position is its own vector clock
 	*result = true
 	var vc VectorClock
 	sign_replace := false
 	sign_concurrent := false
 	i := 0
+	object = (*s).objectMap[key]
 	for _, x := range object {
 		vc = x.Context.Clock
 		if vc.LessThan(new_context.Clock){ //new context is casually descent from old context
@@ -285,6 +294,7 @@ func (s *DynamoServer) PutToPreference(value PutArgs, result *bool) error{
 	if sign_concurrent{
 		s.objectMap[key] = append(s.objectMap[key],ObjectEntry{new_context,new_value})
 	}
+	PrintObjectMap(s.nodeID, s.objectMap)
 	return nil
 }
 
