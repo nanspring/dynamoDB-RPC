@@ -21,6 +21,7 @@ type DynamoServer struct {
 	objectMap	   map[string][]ObjectEntry //store the put operation 
 	notReplicated   map[string][]DynamoNode // not replicated node lists
 
+
 }
 
 type GetArgs struct {
@@ -258,7 +259,7 @@ func (s *DynamoServer) PutToPreference(value PutArgs, result *bool) error{
 		object = (*s).objectMap[key]
 		for _, x := range object {
 			vc = x.Context.Clock
-			if vc.LessThan(new_context.Clock){ //new context is casually descent from old context
+			if !vc.Equals(new_context.Clock) && vc.LessThan(new_context.Clock){ //new context is casually descent from old context
 				if !sign_replace{
 					// replace the context with new context only once
 					s.objectMap[key][i] = ObjectEntry{NewContext(new_context.Clock),new_value}
@@ -271,16 +272,17 @@ func (s *DynamoServer) PutToPreference(value PutArgs, result *bool) error{
 				*result = false
 				s.objectMap[key][i] = x
 				i++
-				if vc.Concurrent(new_context.Clock) {
+				if vc.Concurrent(new_context.Clock){
 					sign_concurrent = true
 				}
 			}
-			// only first i should be kept, others are garbage collect 
-			s.objectMap[key] = s.objectMap[key][:i]
-			if sign_concurrent{
-				s.objectMap[key] = append(s.objectMap[key],ObjectEntry{new_context,new_value})
-			}
 		}
+		// only first i should be kept, others are garbage collect  
+		s.objectMap[key] = s.objectMap[key][:i]
+		if sign_concurrent{
+			s.objectMap[key] = append(s.objectMap[key],ObjectEntry{new_context,new_value})
+		}
+
 	}
 	// PrintObjectMap(s.nodeID, s.objectMap)
 	return nil
